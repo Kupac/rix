@@ -2,10 +2,12 @@
 #' @param git_pkg A list of three elements: "package_name", the name of the
 #'   package, "repo_url", the repository's url, "commit", the commit hash of
 #'   interest.
+#' @param let_block logical of length 1. Should the result be formatted to
+#'                  be used in a let binding or an attribute set.
 #' @return A character. The Nix definition to download and build the R package
 #'   from GitHub.
 #' @noRd
-fetchgit <- function(git_pkg) {
+fetchgit <- function(git_pkg, let_block = FALSE) {
   package_name <- git_pkg$package_name
   repo_url <- git_pkg$repo_url
   commit <- git_pkg$commit
@@ -77,7 +79,7 @@ generate_git_nix_expression <- function(package_name,
     paste0(" ++ [ ", paste0(remote_pkgs_names, collapse = " "), " ]")
   }
 
-  sprintf(
+  res <- sprintf(
     '
     %s = (pkgs.rPackages.buildRPackage {
       name = \"%s\";
@@ -99,8 +101,35 @@ generate_git_nix_expression <- function(package_name,
     imports,
     flag_remote_deps
   )
+  if (let_block) {
+      res <- sub("    (pkgs.",
+                 paste0("    ", package_name, " = (pkgs."),
+                 res,
+                 fixed = TRUE)
+      res <- sub("    })\n", "    });\n", res, fixed = TRUE)
+  }
+  return(res)
 }
-
+##' get_cran_link Generates CRAN archive url from package@version
+##' @param archive_pkg character vector of the form `"dplyr@0.80"`
+##' @return a character matrix with three rows: name, version, url, columns
+##'         correspond to the package names supplied.
+get_cran_link <- function(archive_pkg) {
+    lst_name_ver <- strsplit(archive_pkg, split = "@")
+    vapply(
+        lst_name_ver,
+        \(pkgs) {
+            c(name = pkgs[1],
+              version = pkgs[2],
+              url = paste0(
+                  "https://cran.r-project.org/src/contrib/Archive/",
+                  pkgs[1], "/",
+                  paste0(pkgs[1], "_", pkgs[2]),
+                  ".tar.gz"
+            ))
+        },
+        c(name = "pkgname", version = "pkgversion", url = "https://example.com"))
+}
 
 #' fetchzip Downloads and installs an archived CRAN package
 #' @param archive_pkg A character of the form `"dplyr@0.80"`
@@ -108,17 +137,10 @@ generate_git_nix_expression <- function(package_name,
 #'   from CRAN.
 #' @noRd
 fetchzip <- function(archive_pkg, sri_hash = NULL) {
-  pkgs <- unlist(strsplit(archive_pkg, split = "@"))
+  pkgs <- get_cran_link(archive_pkg)
 
-  cran_archive_link <- paste0(
-    "https://cran.r-project.org/src/contrib/Archive/",
-    pkgs[1], "/",
-    paste0(pkgs[1], "_", pkgs[2]),
-    ".tar.gz"
-  )
-
-  package_name <- pkgs[1]
-  repo_url <- cran_archive_link
+  package_name <- pkgs["name", 1]
+  repo_url <- pkgs["url", 1]
 
   if (is.null(sri_hash)) {
     output <- get_sri_hash_deps(repo_url, commit = NULL)

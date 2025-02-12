@@ -1,0 +1,94 @@
+:PROPERTIES:
+:ID:       be054f0f-58fb-4da3-89f0-214fdf8e197e
+:END:
+#+title: Structure
+
+* Intro
+
+~rix()~ is the main function, so I'll start my exploration  
+
+* Structure
+
+** Setup
+
+The first part of the code just checks the various input parameters
+and emits warnings if needed.
+
+It will also create a project directory, if needed. Then, it sets the
+path of ~.Rprofile~ and ~default~. 
+
+*** Define the nix repo
+
+Either bleeding edge, frozen edge or NixOS/nixpkgs.
+~make_nixpkgs_url()~ takes care of this.
+
+** List packages
+
+Package names are stored in ~*_pkgs*~ variables (character
+vectors). There's also a flag associated with each category. Empty
+~""~ if it contains no packages, otherwsie a name, like
+~"rpkgs"~. This will be the name of the nix variable in a let binding,
+containing the package lists.
+
+- CRAN: Current and archived CRAN packages
+- TeX packages
+- R packages from git
+- Local R packages
+- System packages
+
+** Generate default.nix
+
+Using a set of ~generate*~ functions. 
+
+** How R package names are parsed
+The ~get_rpkgs()~ function splits the package vector into "pure" R
+package names, and versioned ones.  Versioned names will always be
+stored in ~archive_pkgs~ and handled by ~fetchzip~.
+
+It also adds ~{languageserver}~ to the list of packages, whether it's
+there or not. Then, it collapses the packages into a ~character(1)~,
+which is useful to pass into the nix expression.
+
+The function returns a list of length 2, with ~rPackages~
+(~character(1)~) and ~archive_pkgs~ (~character~).
+
+Archived CRAN and git packages are handled by a single function.
+The archived CRAN packages come from the list above, and the git
+packages are defined by the user in a list. the ~fetchpkgs()~ function
+seems to handle both.
+
+In reality, it just passes on the job to the ~fetchzips()~ and ~fetchgits()~,
+which are wrapper functions for ~fetchzip()~ and ~fetchgit()~. These will just
+create a nix expression using ~buildRPackage~, which becomes an item in a nix
+list.
+
+* The plan
+
+I'll create a temporary ~rix_flake()~ function based on ~rix()~. Once it takes
+shape, I can try to merge it in a single function, we don't duplicate
+maintenance burden.
+
+** Collect inputs
+
+- nixpkgs or nix daily
+- CRAN archives:
+  We need to factor out the part of fetchzip that splits the name and version,
+  generates the archive link, returns the url and the name. 
+  The rest can use this, because the archive link can be used as flake input.
+- github packages: change ~fetchgit()~ to generate let bindings instead of just
+  a pure derivation.
+- other? 
+
+** Override rPackages tree
+
+As in the [[https://nixos.wiki/wiki/Overlays#R_Packages_Overlay][example here]]. 
+
+~src~ can be taken from the inputs.
+~sha256~ can be overridden from the lock file (?) as described in
+[[https://wiki.nixos.org/wiki/Flakes#Using_flakes_with_stable_Nix][NixOS wiki]]. That means that a lock file must be created before eval,
+but I guess (hope) this is what happens anyway. That means that it
+wouldn't be necessary to prefetch.
+
+** Create outputs
+
+This should be possible using a template, I imagine.
